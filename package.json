@@ -1,6 +1,6 @@
 {
 	"name": "detritus-utils",
-	"version": "0.0.4",
+	"version": "0.0.5",
 	"description": "all of detritus's reused util things",
 	"main": "./lib/index.js",
 	"directories": {
