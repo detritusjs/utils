@@ -34,7 +34,7 @@ export class Timeout {
     handler: Function,
     override: boolean = true,
   ): void {
-    if (this.hasStarted && override) {
+    if (!this.hasStarted || override) {
       this.stop();
       this.reference = setTimeout(() => {
         this.reference = null;
