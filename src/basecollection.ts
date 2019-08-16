@@ -128,9 +128,15 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   constructor({expire, intervalTime, limit}: BaseCollectionOptions = {}) {
     super();
 
-    this.expire = expire;
-    this.intervalTime = (intervalTime === undefined) ? this.intervalTime : intervalTime;
-    this.limit = (limit === undefined) ? this.limit : limit;
+    if (expire !== undefined) {
+      this.expire = expire;
+    }
+    if (intervalTime !== undefined) {
+      this.intervalTime = intervalTime;
+    }
+    if (limit !== undefined) {
+      this.limit = limit;
+    }
 
     if (this.expire) {
       this.intervalTime = Math.min(this.expire, this.intervalTime);
