@@ -1,7 +1,8 @@
 import * as Constants from './constants';
 import * as Snowflake from './snowflake';
 import * as Timers from './timers';
+import * as Tools from './tools';
 
-export { Constants, Snowflake, Timers };
+export { Constants, Snowflake, Timers, Tools };
 export * from './basecollection';
 export * from './eventemitter';
