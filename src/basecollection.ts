@@ -1,18 +1,6 @@
 import * as Timers from './timers';
 
 
-type WeakMapKey = null | object | undefined;
-
-declare class WeakMap<K extends WeakMapKey, V> {
-  constructor();
-  constructor(iterable: Iterable<[K, V]>);
-
-  delete(key: K): boolean;
-  get(key: K): V;
-  has(key: K): boolean;
-  set(key: K, value?: V): WeakMap<K, V>;
-}
-
 export class BaseCollectionMixin<K, V> {
   get length(): number {
     return this.size;
@@ -129,9 +117,9 @@ export interface BaseCollectionOptions {
   limit?: number,
 }
 
-export class BaseCollection<K, V extends WeakMapKey> extends BaseCollectionMixin<K, V> {
+export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   readonly cache = new Map<K, V>();
-  _lastUsed?: WeakMap<V, number>;
+  _lastUsed?: Map<K, number>;
 
   expire?: number;
   interval = new Timers.Interval();
@@ -165,14 +153,14 @@ export class BaseCollection<K, V extends WeakMapKey> extends BaseCollectionMixin
     });
   }
 
-  get lastUsed(): WeakMap<V, number> {
+  get lastUsed(): Map<K, number> {
     if (this._lastUsed) {
       return this._lastUsed;
     }
     if (this.expire) {
-      return this._lastUsed = new WeakMap<V, number>();
+      return this._lastUsed = new Map<K, number>();
     }
-    return new WeakMap<V, number>();
+    return new Map<K, number>();
   }
 
   get shouldStartInterval(): boolean {
@@ -210,7 +198,7 @@ export class BaseCollection<K, V extends WeakMapKey> extends BaseCollectionMixin
         if (expire) {
           const now = Date.now();
           for (let [key, value] of this.cache) {
-            const lastUsed = this.lastUsed.get(value);
+            const lastUsed = this.lastUsed.get(key);
             if (lastUsed && expire < now - lastUsed) {
               this.delete(key);
             }
@@ -235,6 +223,9 @@ export class BaseCollection<K, V extends WeakMapKey> extends BaseCollectionMixin
   clear(): void {
     this.stopInterval();
     this.cache.clear();
+    if (this._lastUsed) {
+      this._lastUsed.clear();
+    }
   }
 
   clone(): BaseCollection<K, V> {
@@ -247,6 +238,9 @@ export class BaseCollection<K, V extends WeakMapKey> extends BaseCollectionMixin
 
   delete(key: K): boolean {
     const deleted = this.cache.delete(key);
+    if (this._lastUsed) {
+      this._lastUsed.delete(key);
+    }
     if (!this.cache.size) {
       this.stopInterval();
     }
@@ -260,7 +254,7 @@ export class BaseCollection<K, V extends WeakMapKey> extends BaseCollectionMixin
   get(key: K): V | undefined {
     const value = this.cache.get(key);
     if (this.expire && value) {
-      this.lastUsed.set(value, Date.now());
+      this.lastUsed.set(key, Date.now());
     }
     return value;
   }
@@ -276,7 +270,7 @@ export class BaseCollection<K, V extends WeakMapKey> extends BaseCollectionMixin
   set(key: K, value: V): this {
     this.cache.set(key, value);
     if (this.expire) {
-      this.lastUsed.set(value, Date.now());
+      this.lastUsed.set(key, Date.now());
       if (this.shouldStartInterval) {
         this.startInterval();
       }
