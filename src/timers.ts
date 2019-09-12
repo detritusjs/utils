@@ -1,8 +1,27 @@
 export class Interval {
+  shouldRef: boolean = true;
   reference: any = null;
 
   get hasStarted(): boolean {
     return this.reference !== null;
+  }
+
+  hasRef(): boolean {
+    return this.shouldRef;
+  }
+
+  ref(): void {
+    this.shouldRef = true;
+    if (this.reference) {
+      this.reference.ref();
+    }
+  }
+
+  unref(): void {
+    this.shouldRef = false;
+    if (this.reference) {
+      this.reference.unref();
+    }
   }
 
   start(
@@ -11,6 +30,11 @@ export class Interval {
   ): void {
     this.stop();
     this.reference = setInterval(handler, milliseconds);
+    if (this.shouldRef) {
+      this.ref();
+    } else {
+      this.unref();
+    }
   }
 
   stop(): void {
@@ -23,10 +47,29 @@ export class Interval {
 
 
 export class Timeout {
+  shouldRef: boolean = true;
   reference: any = null;
 
   get hasStarted(): boolean {
     return this.reference !== null;
+  }
+
+  hasRef(): boolean {
+    return this.shouldRef;
+  }
+
+  ref(): void {
+    this.shouldRef = true;
+    if (this.reference) {
+      this.reference.ref();
+    }
+  }
+
+  unref(): void {
+    this.shouldRef = false;
+    if (this.reference) {
+      this.reference.unref();
+    }
   }
 
   start(
@@ -40,6 +83,11 @@ export class Timeout {
         this.reference = null;
         handler();
       }, milliseconds);
+      if (this.shouldRef) {
+        this.ref();
+      } else {
+        this.unref();
+      }
     }
   }
 
