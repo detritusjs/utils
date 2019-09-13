@@ -144,7 +144,7 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     }
 
     Object.defineProperties(this, {
-      _lastUsed: {enumerable: false},
+      _lastUsed: {enumerable: false, writable: true},
       cache: {enumerable: false},
       expire: {configurable: true, writable: false},
       interval: {enumerable: false},
