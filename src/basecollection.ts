@@ -56,6 +56,10 @@ export class BaseCollectionMixin<K, V> {
 
   }
 
+  join(separator?: string): string {
+    return this.toArray().join(separator);
+  }
+
   map(func: (v: V, k: K) => any): Array<any> {
     const map = [];
     for (let [key, value] of this) {
@@ -79,6 +83,10 @@ export class BaseCollectionMixin<K, V> {
         }
     }
     return false;
+  }
+
+  sort(func?: (x: V, y: V) => number): Array<V> {
+    return this.toArray().sort(func);
   }
 
   toArray(): Array<V> {

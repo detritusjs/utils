@@ -33,6 +33,10 @@ export class BaseSet<V> extends Set<V> {
     return this.values().next().value;
   }
 
+  join(separator?: string): string {
+    return this.toArray().join(separator);
+  }
+
   map(func: (v: V) => any): Array<any> {
     const map: Array<any> = [];
     for (let value of this) {
@@ -52,6 +56,10 @@ export class BaseSet<V> extends Set<V> {
       }
     }
     return false;
+  }
+
+  sort(func?: (x: V, y: V) => number): Array<V> {
+    return this.toArray().sort(func);
   }
 
   toArray(): Array<V> {
