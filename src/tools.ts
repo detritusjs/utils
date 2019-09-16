@@ -5,9 +5,8 @@ export function normalize(object: {[key: string]: any}) {
   return Object.freeze(object);
 }
 
-
-export function guildIdtoShardId(guildId: string, shardCount: number = 0): number {
-  return (+(guildId) >> 22) % shardCount;
+export function guildIdToShardId(guildId: string, shardCount: number = 0): number {
+  return (+(guildId) / (1 << 22)) % shardCount;
 }
 
 export type URIEncodeWrapFunc = (...args: Array<any>) => string;

@@ -1,6 +1,6 @@
 {
   "name": "detritus-utils",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Detritus Utils",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
