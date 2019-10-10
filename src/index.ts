@@ -6,4 +6,4 @@ import * as Tools from './tools';
 export { Constants, Snowflake, Timers, Tools };
 export * from './basecollection';
 export * from './baseset';
-export * from './eventemitter';
+export * from './eventspewer';
