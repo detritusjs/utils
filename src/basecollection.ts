@@ -130,7 +130,7 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   _lastUsed?: Map<K, number>;
 
   expire?: number;
-  interval?: Timers.Interval;
+  interval?: Timers.Interval = undefined;
   intervalTime = 5000;
   limit: number = Infinity;
 
