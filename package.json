@@ -1,6 +1,6 @@
 {
   "name": "detritus-utils",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Detritus Utils",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -13,6 +13,11 @@
   },
   "peerDependencies": {
     "eventemitter3": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "eventemitter3": {
+      "optional": true
+    }
   },
   "scripts": {
     "build": "tsc",
