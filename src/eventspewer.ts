@@ -61,7 +61,7 @@ export class EventSpewer extends Emitter implements EventEmitter {
     }
   }
 
-  removeAllListeners(name: string | symbol | undefined): this {
+  removeAllListeners(name?: string | symbol): this {
     if (this._subscriptions) {
       if (name !== undefined) {
         for (let subscription of this._subscriptions) {
