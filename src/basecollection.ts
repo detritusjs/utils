@@ -130,7 +130,7 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   _lastUsed?: Map<K, number>;
 
   expire?: number;
-  interval = new Timers.Interval();
+  interval?: Timers.Interval;
   intervalTime = 5000;
   limit: number = Infinity;
 
@@ -155,7 +155,7 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
       _lastUsed: {enumerable: false, writable: true},
       cache: {enumerable: false},
       expire: {configurable: true, writable: false},
-      interval: {enumerable: false},
+      interval: {enumerable: false, writeable: true},
       intervalTime: {configurable: true, enumerable: false, writable: false},
       limit: {enumerable: false},
     });
@@ -172,7 +172,7 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   }
 
   get shouldStartInterval(): boolean {
-    return !this.interval.hasStarted && !!this.intervalTime;
+    return !!this.intervalTime && (!this.interval || !!this.interval.hasStarted);
   }
 
   setExpire(value: number): this {
@@ -201,6 +201,9 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
 
   startInterval() {
     if (this.intervalTime && this.expire) {
+      if (!this.interval) {
+        this.interval = new Timers.Interval();
+      }
       this.interval.start(this.intervalTime, () => {
         const expire = this.expire;
         if (expire) {
@@ -221,7 +224,10 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   }
 
   stopInterval() {
-    this.interval.stop();
+    if (this.interval) {
+      this.interval.stop();
+    }
+    this.interval = undefined;
   }
 
   get size(): number {
