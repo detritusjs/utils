@@ -1,6 +1,6 @@
 {
   "name": "detritus-utils",
-  "version": "0.2.6",
+  "version": "0.3.0",
   "description": "Detritus Utils",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -9,10 +9,10 @@
   ],
   "dependencies": {},
   "devDependencies": {
-    "@types/node": "^12.11.7"
+    "@types/node": "^14.0.27"
   },
   "peerDependencies": {
-    "eventemitter3": "^4.0.0"
+    "eventemitter3": "^4.0.4"
   },
   "peerDependenciesMeta": {
     "eventemitter3": {

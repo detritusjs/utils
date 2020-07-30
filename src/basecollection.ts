@@ -289,6 +289,14 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
         this.startInterval();
       }
     }
+    if (this.limit !== Infinity) {
+      if (this.limit <= this.cache.size) {
+        for (let [key, value] of this.cache) {
+          this.delete(key);
+          break;
+        }
+      }
+    }
     return this;
   }
 

@@ -2,26 +2,32 @@ import { DISCORD_SNOWFLAKE_EPOCH } from './constants';
 
 
 const bits = Object.freeze({
-  processId: 5,
-  workerId: 5,
-  sequence: 12,
+  timestamp: 42n,
+  workerId: 5n,
+  processId: 5n,
+  sequence: 12n,
+});
+
+const shift = Object.freeze({
+  timestamp: bits.processId + bits.workerId + bits.sequence,
+  workerId: bits.workerId + bits.sequence,
+  processId: bits.sequence,
+  sequence: 0n,
 });
 
 const max = Object.freeze({
-  timestamp: 0x40000000000,
-  middle: -1 ^ (-1 << (bits.workerId + bits.processId + bits.sequence)),
-  processId: -1 ^ (-1 << bits.processId),
-  sequence: -1 ^ (-1 << bits.sequence),
-  workerId: -1 ^ (-1 << bits.workerId),
+  timestamp: 0x40000000000n,
+  processId: -1n ^ (-1n << bits.processId),
+  sequence: -1n ^ (-1n << bits.sequence),
+  workerId: -1n ^ (-1n << bits.workerId),
 });
 
 const cache = {
-  sequence: 0,
+  sequence: 0n,
 };
 
 
 export interface Snowflake {
-  binary: string,
   id: string,
   processId: number,
   sequence: number,
@@ -40,114 +46,79 @@ export interface SnowflakeGenerateOptions {
 export function generate(
   options: SnowflakeGenerateOptions = {},
 ): Snowflake {
-  options = Object.assign({}, options);
-  if (options.epoch === undefined) {
-    options.epoch = DISCORD_SNOWFLAKE_EPOCH;
-  }
-  if (options.processId === undefined) {
-    options.processId = 0;
-  }
-  if (options.timestamp === undefined) {
-    options.timestamp = Date.now();
-  }
-  if (options.workerId === undefined) {
-    options.workerId = 0;
+  options = Object.assign({
+    epoch: DISCORD_SNOWFLAKE_EPOCH,
+    processId: 0,
+    timestamp: Date.now(),
+    workerId: 0,
+  }, options);
+
+  const epoch = BigInt(options.epoch as number);
+  const processId = BigInt(options.processId as number);
+  const timestamp = BigInt(options.timestamp as number);
+  const workerId = BigInt(options.workerId as number);
+
+  let sequence: bigint;
+  if (options.sequence === undefined) {
+    sequence = cache.sequence = ++cache.sequence & max.sequence;
+  } else {
+    sequence = BigInt(options.sequence) & max.sequence;
   }
 
   const snowflake: Snowflake = {
-    binary: '',
     id: '',
-    processId: options.processId & max.processId,
-    sequence: 0,
-    timestamp: (options.timestamp - options.epoch) % max.timestamp,
-    workerId: options.workerId & max.workerId,
+    processId: Number(processId & max.processId),
+    sequence: Number(sequence),
+    timestamp: Number((timestamp - epoch) % max.timestamp),
+    workerId: Number(workerId & max.workerId),
   };
 
-  if (options.sequence === undefined) {
-    snowflake.sequence = cache.sequence = ++cache.sequence & max.sequence;
-  } else {
-    snowflake.sequence = options.sequence & max.sequence;
-  }
-
-  let processId = snowflake.processId.toString(2).padStart(5, '0');
-  let sequence = snowflake.sequence.toString(2).padStart(12, '0');
-  let timestamp = snowflake.timestamp.toString(2).padStart(42, '0');
-  let workerId = snowflake.workerId.toString(2).padStart(5, '0');
-
-  let binary = snowflake.binary = timestamp + workerId + processId + sequence;
-  //thanks discord.js
-  while (binary.length > 50) {
-    const high = parseInt(binary.slice(0, -32), 2);
-    const low = parseInt((high % 10).toString(2) + binary.slice(-32), 2);
-
-    snowflake.id = (low % 10).toString() + snowflake.id;
-    binary = Math.floor(high / 10).toString(2) + Math.floor(low / 10).toString(2).padStart(32, '0');
-  }
-
-  let binaryNumber = parseInt(binary, 2);
-  while (0 < binaryNumber) {
-    snowflake.id = (binaryNumber % 10).toString() + snowflake.id;
-    binaryNumber = Math.floor(binaryNumber / 10);
-  }
+  snowflake.id = String(
+    (timestamp << shift.timestamp) |
+    (processId << shift.processId) |
+    (workerId << shift.workerId) |
+    (sequence << shift.sequence)
+  );
 
   return snowflake;
 }
 
+
 export interface SnowflakeDeconstructOptions {
   epoch?: number,
-}
-export interface SnowflakeDeconstructOptionsRequired {
-  epoch: number,
 }
 
 export function deconstruct(
   id: string,
   options: SnowflakeDeconstructOptions = {},
 ): Snowflake {
-  options = Object.assign({}, options);
-  if (options.epoch === undefined) {
-    options.epoch = DISCORD_SNOWFLAKE_EPOCH;
-  }
+  options = Object.assign({
+    epoch: DISCORD_SNOWFLAKE_EPOCH,
+  }, options);
 
-  const snowflake = {
-    binary: '',
+  const epoch = BigInt(options.epoch as number);
+  const snowflake = BigInt(id);
+  return {
     id,
-    processId: 0,
-    sequence: 0,
-    timestamp: 0,
-    workerId: 0,
+    processId: Number((snowflake & 0x1F000n) >> shift.processId),
+    sequence: Number(snowflake & 0xFFFn),
+    timestamp: Number((snowflake >> shift.timestamp) + epoch),
+    workerId: Number((snowflake & 0x3E0000n) >> shift.workerId),
   };
-
-  //thanks discord.js
-  let high = parseInt(id.slice(0, -10)) || 0;
-  let low = parseInt(id.slice(-10));
-  while (low > 0 || high > 0) {
-    snowflake.binary = (low & 1).toString() + snowflake.binary;
-    low = Math.floor(low / 2);
-    if (high > 0) {
-      low += 5000000000 * (high % 2);
-      high = Math.floor(high / 2);
-    }
-  }
-
-  snowflake.binary = snowflake.binary.padStart(64, '0');
-  snowflake.timestamp = parseInt(snowflake.binary.slice(0, 42), 2) + options.epoch;
-  snowflake.workerId = parseInt(snowflake.binary.slice(42, 47), 2);
-  snowflake.processId = parseInt(snowflake.binary.slice(47, 52), 2);
-  snowflake.sequence = parseInt(snowflake.binary.slice(52, 64), 2);
-  return snowflake;
 }
+
 
 export function timestamp(
   id: string,
   options: SnowflakeDeconstructOptions = {},
 ): number {
-  options = Object.assign({}, options);
-  if (options.epoch === undefined) {
-    options.epoch = DISCORD_SNOWFLAKE_EPOCH;
-  }
+  options = Object.assign({
+    epoch: DISCORD_SNOWFLAKE_EPOCH,
+  }, options);
+
+  const epoch = BigInt(options.epoch as number);
   if (id) {
-    return Math.round((parseInt(id) / max.middle) + options.epoch);
+    return Number((BigInt(id) >> shift.timestamp) + epoch);
   }
   return 0;
 }
