@@ -54,9 +54,9 @@ export function generate(
   }, options);
 
   const epoch = BigInt(options.epoch as number);
-  const processId = BigInt(options.processId as number);
-  const timestamp = BigInt(options.timestamp as number);
-  const workerId = BigInt(options.workerId as number);
+  const processId = BigInt(options.processId as number) & max.processId;
+  const timestamp = (BigInt(options.timestamp as number) - epoch) % max.timestamp;
+  const workerId = BigInt(options.workerId as number) & max.workerId;
 
   let sequence: bigint;
   if (options.sequence === undefined) {
@@ -67,16 +67,16 @@ export function generate(
 
   const snowflake: Snowflake = {
     id: '',
-    processId: Number(processId & max.processId),
+    processId: Number(processId),
     sequence: Number(sequence),
-    timestamp: Number((timestamp - epoch) % max.timestamp),
-    workerId: Number(workerId & max.workerId),
+    timestamp: Number(timestamp),
+    workerId: Number(workerId),
   };
 
   snowflake.id = String(
     (timestamp << shift.timestamp) |
-    (processId << shift.processId) |
     (workerId << shift.workerId) |
+    (processId << shift.processId) |
     (sequence << shift.sequence)
   );
 
