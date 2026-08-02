@@ -273,6 +273,23 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     return value;
   }
 
+  getOrInsert(key: K, defaultValue: V): V {
+    if (this.has(key)) {
+      return this.get(key)!;
+    }
+    this.set(key, defaultValue);
+    return defaultValue;
+  }
+
+  getOrInsertComputed(key: K, func: (key: K) => V): V {
+    if (this.has(key)) {
+      return this.get(key)!;
+    }
+    const value = func(key);
+    this.set(key, value);
+    return value;
+  }
+
   has(key: K): boolean {
     return this.cache.has(key);
   }
