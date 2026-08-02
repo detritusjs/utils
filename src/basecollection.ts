@@ -155,7 +155,7 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
       _lastUsed: {enumerable: false, writable: true},
       cache: {enumerable: false},
       expire: {configurable: true, writable: false},
-      interval: {enumerable: false, writeable: true},
+      interval: {enumerable: false, writable: true},
       intervalTime: {configurable: true, enumerable: false, writable: false},
       limit: {enumerable: false},
     });
