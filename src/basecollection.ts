@@ -173,6 +173,12 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     return new Map<K, number>();
   }
 
+  touch(key: K): void {
+    const lastUsed = this.lastUsed;
+    lastUsed.delete(key);
+    lastUsed.set(key, Date.now());
+  }
+
   get shouldStartInterval(): boolean {
     return !!this.intervalTime && (!this.interval || !this.interval.hasStarted);
   }
@@ -228,11 +234,11 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
         const expire = this.expire;
         if (expire) {
           const now = Date.now();
-          for (let [key, value] of this.cache) {
-            const lastUsed = this.lastUsed.get(key);
-            if (lastUsed && expire < now - lastUsed) {
-              this.delete(key);
+          for (let [key, lastUsed] of this.lastUsed) {
+            if (now - lastUsed <= expire) {
+              break;
             }
+            this.delete(key);
           }
         } else {
           this.stopInterval();
@@ -295,14 +301,16 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
 
   get(key: K): V | undefined {
     const value = this.cache.get(key);
-    if (this.limit !== Infinity && this.cache.has(key)) {
-      // mark it as the most recently used
-      const order = this.getOrder();
-      order.delete(key);
-      order.set(key, true);
-    }
-    if (this.expire && this.cache.has(key)) {
-      this.lastUsed.set(key, Date.now());
+    if ((this.limit !== Infinity || this.expire) && (value !== undefined || this.cache.has(key))) {
+      if (this.limit !== Infinity) {
+        // mark it as the most recently used
+        const order = this.getOrder();
+        order.delete(key);
+        order.set(key, true);
+      }
+      if (this.expire) {
+        this.touch(key);
+      }
     }
     return value;
   }
@@ -349,7 +357,7 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     }
     this.cache.set(key, value);
     if (this.expire) {
-      this.lastUsed.set(key, Date.now());
+      this.touch(key);
       if (this.shouldStartInterval) {
         this.startInterval();
       }

@@ -31,18 +31,13 @@ export function URIEncodeWrap(unsafe: URIEncodeWrapped): URIEncodeWrapped {
       continue;
     }
     safe[key] = <URIEncodeWrapFunc> ((...args) => {
-      args = args.map((arg) => {
-        if (!arg) {
-          return arg;
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (arg) {
+          const value = String(arg);
+          args[i] = (value.includes(safeCharacter)) ? value.split(safeCharacter).map(encodeURIComponent).join(safeCharacter) : encodeURIComponent(value);
         }
-        const value = String(arg);
-        if (!value.includes(safeCharacter)) {
-          return encodeURIComponent(value);
-        }
-        return value.split('').map((char) => {
-          return (char === safeCharacter) ? char : encodeURIComponent(char);
-        }).join('');
-      });
+      }
       return path(...args);
     });
   }

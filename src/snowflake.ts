@@ -26,6 +26,12 @@ const cache = {
   sequence: 0n,
 };
 
+const DEFAULT_EPOCH = BigInt(DISCORD_SNOWFLAKE_EPOCH);
+
+function getEpoch(epoch?: number): bigint {
+  return (epoch === undefined || epoch === null) ? DEFAULT_EPOCH : BigInt(epoch);
+}
+
 
 export interface Snowflake {
   id: string,
@@ -46,24 +52,18 @@ export interface SnowflakeGenerateOptions {
 export function generate(
   options: SnowflakeGenerateOptions = {},
 ): Snowflake {
-  options = Object.assign({
-    epoch: DISCORD_SNOWFLAKE_EPOCH,
-    processId: 0,
-    timestamp: Date.now(),
-    workerId: 0,
-  }, options);
-
-  const epoch = BigInt(options.epoch as number);
-  const processId = BigInt(options.processId as number) & max.processId;
-  const elapsed = BigInt(options.timestamp as number) - epoch;
+  const epoch = getEpoch(options.epoch);
+  const processId = BigInt(options.processId ?? 0) & max.processId;
+  const now = options.timestamp ?? Date.now();
+  const elapsed = BigInt(now) - epoch;
   if (elapsed < 0n) {
-    throw new RangeError(`Timestamp ${options.timestamp} is before the epoch ${options.epoch}`);
+    throw new RangeError(`Timestamp ${now} is before the epoch ${epoch}`);
   }
   const timestamp = elapsed % max.timestamp;
-  const workerId = BigInt(options.workerId as number) & max.workerId;
+  const workerId = BigInt(options.workerId ?? 0) & max.workerId;
 
   let sequence: bigint;
-  if (options.sequence === undefined) {
+  if (options.sequence === undefined || options.sequence === null) {
     sequence = cache.sequence = ++cache.sequence & max.sequence;
   } else {
     sequence = BigInt(options.sequence) & max.sequence;
@@ -73,7 +73,7 @@ export function generate(
     id: '',
     processId: Number(processId),
     sequence: Number(sequence),
-    timestamp: Number(timestamp),
+    timestamp: Number(timestamp + epoch),
     workerId: Number(workerId),
   };
 
@@ -96,11 +96,7 @@ export function deconstruct(
   id: string,
   options: SnowflakeDeconstructOptions = {},
 ): Snowflake {
-  options = Object.assign({
-    epoch: DISCORD_SNOWFLAKE_EPOCH,
-  }, options);
-
-  const epoch = BigInt(options.epoch as number);
+  const epoch = getEpoch(options.epoch);
   const snowflake = BigInt(id);
   return {
     id,
@@ -116,12 +112,8 @@ export function timestamp(
   id: string,
   options: SnowflakeDeconstructOptions = {},
 ): number {
-  options = Object.assign({
-    epoch: DISCORD_SNOWFLAKE_EPOCH,
-  }, options);
-
-  const epoch = BigInt(options.epoch as number);
   if (id) {
+    const epoch = getEpoch(options.epoch);
     return Number((BigInt(id) >> shift.timestamp) + epoch);
   }
   return 0;

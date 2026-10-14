@@ -15,7 +15,7 @@ export class EventSpewer extends Emitter implements EventEmitter {
   /**
    * @ignore
    */
-  _subscriptions: Array<EventSubscription> | undefined = undefined;
+  _subscriptions: Map<string | symbol, Array<EventSubscription>> | undefined = undefined;
 
   constructor() {
     super();
@@ -36,49 +36,66 @@ export class EventSpewer extends Emitter implements EventEmitter {
     this.on(name, listener);
 
     if (!this._subscriptions) {
-      this._subscriptions = [];
+      this._subscriptions = new Map();
     }
-    this._subscriptions.push(subscription);
+    let subscriptions = this._subscriptions.get(name);
+    if (!subscriptions) {
+      this._subscriptions.set(name, subscriptions = []);
+    }
+    subscriptions.push(subscription);
     return subscription;
+  }
+
+  _deleteSubscriptions(name: string | symbol, subscriptions: Array<EventSubscription>): void {
+    if (!subscriptions.length && this._subscriptions) {
+      this._subscriptions.delete(name);
+      if (!this._subscriptions.size) {
+        this._subscriptions = undefined;
+      }
+    }
   }
 
   removeSubscription(subscription: EventSubscription): void {
     if (this._subscriptions) {
-      const index = this._subscriptions.indexOf(subscription);
-      if (index !== -1) {
-        if (this._subscriptions.length === 1) {
-          this._subscriptions.pop();
-        } else {
-          this._subscriptions.splice(index, 1);
+      const subscriptions = this._subscriptions.get(subscription.name);
+      if (subscriptions) {
+        const index = subscriptions.indexOf(subscription);
+        if (index !== -1) {
+          subscriptions.splice(index, 1);
         }
-      }
-      if (!this._subscriptions.length) {
-        this._subscriptions = undefined;
+        this._deleteSubscriptions(subscription.name, subscriptions);
       }
     }
     if (subscription.listener) {
-      this.removeListener(subscription.name, subscription.listener);
+      const { listener, name } = subscription;
+      const count = () => this.listeners(name).filter((x) => x === listener).length;
+      const before = count();
+      (super.removeListener as Function).call(this, name, listener);
+      for (let attached = count(); attached < before - 1; attached++) {
+        (super.on as Function).call(this, name, listener);
+      }
     }
   }
 
   removeListener(name: string | symbol, listener: (...args: any[]) => void, ...args: Array<any>): this {
     (super.removeListener as Function).call(this, name, listener, ...args);
     if (this._subscriptions) {
-      let attached = this.listeners(name).filter((x) => x === listener).length;
-      for (let i = this._subscriptions.length - 1; 0 <= i; i--) {
-        const subscription = this._subscriptions[i];
-        if (subscription.name === name && subscription.listener === listener) {
-          if (attached) {
-            attached--;
-          } else {
-            this._subscriptions.splice(i, 1);
-            subscription.listener = null;
-            subscription.spewer = null;
+      const subscriptions = this._subscriptions.get(name);
+      if (subscriptions && subscriptions.some((subscription) => subscription.listener === listener)) {
+        let attached = this.listeners(name).filter((x) => x === listener).length;
+        for (let i = subscriptions.length - 1; 0 <= i; i--) {
+          const subscription = subscriptions[i];
+          if (subscription.listener === listener) {
+            if (attached) {
+              attached--;
+            } else {
+              subscriptions.splice(i, 1);
+              subscription.listener = null;
+              subscription.spewer = null;
+            }
           }
         }
-      }
-      if (!this._subscriptions.length) {
-        this._subscriptions = undefined;
+        this._deleteSubscriptions(name, subscriptions);
       }
     }
     return this;
@@ -91,15 +108,15 @@ export class EventSpewer extends Emitter implements EventEmitter {
   removeAllListeners(name?: string | symbol): this {
     if (this._subscriptions) {
       if (name !== undefined) {
-        for (let subscription of this._subscriptions.slice()) {
-          if (subscription.name === name) {
+        const subscriptions = this._subscriptions.get(name);
+        if (subscriptions) {
+          for (let subscription of subscriptions.slice()) {
             subscription.remove();
           }
         }
       } else {
-        while (this._subscriptions.length) {
-          const subscription = this._subscriptions.shift();
-          if (subscription) {
+        for (let subscriptions of this._subscriptions.values()) {
+          for (let subscription of subscriptions) {
             subscription.listener = null;
             subscription.spewer = null;
           }
@@ -121,7 +138,7 @@ export class EventSpewer extends Emitter implements EventEmitter {
 
   removeAllSubscriptions(): this {
     if (this._subscriptions) {
-      const subscriptions = this._subscriptions;
+      const subscriptions = Array.from(this._subscriptions.values()).flat();
       this._subscriptions = undefined;
       for (let subscription of subscriptions) {
         subscription.remove();

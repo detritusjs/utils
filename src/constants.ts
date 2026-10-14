@@ -1,6 +1,6 @@
 export const Package = Object.freeze({
   URL: 'https://github.com/detritusjs/utils',
-  VERSION: '0.5.0-beta.3',
+  VERSION: '0.5.0-beta.4',
 });
 
 export const DISCORD_SNOWFLAKE_EPOCH = 1420070400000;
