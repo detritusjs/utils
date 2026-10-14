@@ -128,6 +128,7 @@ export interface BaseCollectionOptions {
 export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   readonly cache = new Map<K, V>();
   _lastUsed?: Map<K, number>;
+  declare _order?: Map<K, true>;
 
   expire?: number;
   interval?: Timers.Interval = undefined;
@@ -153,6 +154,7 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
 
     Object.defineProperties(this, {
       _lastUsed: {enumerable: false, writable: true},
+      _order: {enumerable: false, writable: true},
       cache: {enumerable: false},
       expire: {configurable: true, writable: false},
       interval: {enumerable: false, writable: true},
@@ -172,18 +174,36 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   }
 
   get shouldStartInterval(): boolean {
-    return !!this.intervalTime && (!this.interval || !!this.interval.hasStarted);
+    return !!this.intervalTime && (!this.interval || !this.interval.hasStarted);
   }
 
   setExpire(value: number): this {
+    const wasExpiring = !!this.expire;
     Object.defineProperty(this, 'expire', {value});
     if (value) {
+      Object.defineProperty(this, 'intervalTime', {value: Math.min(value, this.intervalTime)});
+      const now = Date.now();
+      const lastUsed = this.lastUsed;
+      for (let key of this.cache.keys()) {
+        if (!wasExpiring || !lastUsed.has(key)) {
+          lastUsed.set(key, now);
+        }
+      }
       if (this.size) {
         this.startInterval();
       }
     } else {
       this.stopInterval();
+      if (this._lastUsed) {
+        this._lastUsed.clear();
+      }
     }
+    return this;
+  }
+
+  setLimit(value: number): this {
+    this.limit = value;
+    this.evict(0);
     return this;
   }
 
@@ -240,12 +260,17 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     if (this._lastUsed) {
       this._lastUsed.clear();
     }
+    if (this._order) {
+      this._order.clear();
+    }
   }
 
   clone(): BaseCollection<K, V> {
     const collection = new BaseCollection<K, V>(this);
-    for (let [key, value] of this) {
-      collection.set(key, value);
+    // insert least recently used first so the clone keeps the same eviction order
+    const keys = (this.limit !== Infinity) ? this.getOrder().keys() : this.cache.keys();
+    for (let key of keys) {
+      collection.set(key, this.cache.get(key)!);
     }
     return collection;
   }
@@ -254,6 +279,9 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     const deleted = this.cache.delete(key);
     if (this._lastUsed) {
       this._lastUsed.delete(key);
+    }
+    if (this._order) {
+      this._order.delete(key);
     }
     if (!this.cache.size) {
       this.stopInterval();
@@ -267,7 +295,13 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
 
   get(key: K): V | undefined {
     const value = this.cache.get(key);
-    if (this.expire && value) {
+    if (this.limit !== Infinity && this.cache.has(key)) {
+      // mark it as the most recently used
+      const order = this.getOrder();
+      order.delete(key);
+      order.set(key, true);
+    }
+    if (this.expire && this.cache.has(key)) {
       this.lastUsed.set(key, Date.now());
     }
     return value;
@@ -299,6 +333,20 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   }
 
   set(key: K, value: V): this {
+    if (this.limit !== Infinity) {
+      if (this.limit <= 0) {
+        this.evict(0);
+        return this;
+      }
+      const order = this.getOrder();
+      if (this.cache.has(key)) {
+        order.delete(key);
+      } else {
+        // make room for the new key, evicting the least recently used ones
+        this.evict(1);
+      }
+      order.set(key, true);
+    }
     this.cache.set(key, value);
     if (this.expire) {
       this.lastUsed.set(key, Date.now());
@@ -306,15 +354,52 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
         this.startInterval();
       }
     }
-    if (this.limit !== Infinity) {
-      if (this.limit <= this.cache.size) {
-        for (let [key, value] of this.cache) {
-          this.delete(key);
-          break;
+    return this;
+  }
+
+  /**
+   * Evicts the least recently used items until there's `room` free under the limit
+   */
+  evict(room: number = 0): void {
+    if (this.limit === Infinity) {
+      return;
+    }
+    const max = Math.max(this.limit - room, 0);
+    if (this.cache.size <= max) {
+      return;
+    }
+    const order = this.getOrder();
+    for (let key of order.keys()) {
+      if (this.cache.size <= max) {
+        break;
+      }
+      this.delete(key);
+    }
+  }
+
+  /**
+   * The recency order (least recently used first), synced with the cache
+   * keys added before `limit` was set (or while it was `Infinity`) aren't tracked yet, so they count as the least recently used
+   */
+  getOrder(): Map<K, true> {
+    let order = this._order;
+    if (!order || order.size !== this.cache.size) {
+      const synced = new Map<K, true>();
+      for (let key of this.cache.keys()) {
+        if (!order || !order.has(key)) {
+          synced.set(key, true);
         }
       }
+      if (order) {
+        for (let key of order.keys()) {
+          if (this.cache.has(key)) {
+            synced.set(key, true);
+          }
+        }
+      }
+      order = this._order = synced;
     }
-    return this;
+    return order;
   }
 
   values(): IterableIterator<V> {

@@ -55,7 +55,11 @@ export function generate(
 
   const epoch = BigInt(options.epoch as number);
   const processId = BigInt(options.processId as number) & max.processId;
-  const timestamp = (BigInt(options.timestamp as number) - epoch) % max.timestamp;
+  const elapsed = BigInt(options.timestamp as number) - epoch;
+  if (elapsed < 0n) {
+    throw new RangeError(`Timestamp ${options.timestamp} is before the epoch ${options.epoch}`);
+  }
+  const timestamp = elapsed % max.timestamp;
   const workerId = BigInt(options.workerId as number) & max.workerId;
 
   let sequence: bigint;

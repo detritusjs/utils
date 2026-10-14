@@ -6,7 +6,16 @@ export function normalize(object: {[key: string]: any}) {
 }
 
 export function guildIdToShardId(guildId: string, shardCount: number = 0): number {
-  return Math.round(+(guildId) / (1 << 22)) % shardCount;
+  if (shardCount < 1) {
+    return 0;
+  }
+  let id: bigint;
+  try {
+    id = BigInt(guildId);
+  } catch(e) {
+    return NaN;
+  }
+  return Number((id >> 22n) % BigInt(shardCount));
 }
 
 export type URIEncodeWrapFunc = (...args: Array<any>) => string;
