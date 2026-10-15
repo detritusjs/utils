@@ -1,12 +1,7 @@
 import { EventEmitter } from 'events';
 
-let Emitter = EventEmitter;
-try {
-  Emitter = require('eventemitter3');
-} catch(e) {}
 
-
-export class EventSpewer extends Emitter implements EventEmitter {
+export class EventSpewer extends EventEmitter {
   /**
    * @ignore
    */

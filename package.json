@@ -1,20 +1,12 @@
 {
   "name": "detritus-utils",
-  "version": "0.5.0-beta.4",
+  "version": "0.5.0-beta.5",
   "description": "Detritus Utils",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "files": [
     "lib/**/*"
   ],
-  "peerDependencies": {
-    "eventemitter3": "^5.0.4"
-  },
-  "peerDependenciesMeta": {
-    "eventemitter3": {
-      "optional": true
-    }
-  },
   "scripts": {
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -38,7 +30,7 @@
   },
   "homepage": "https://github.com/detritusjs/utils#readme",
   "devDependencies": {
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.6.5",
     "typescript": "^7.0.2"
   }
 }
