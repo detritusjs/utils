@@ -7,8 +7,13 @@ export class BaseSet<V> extends Set<V> {
     return new BaseSet<V>(this.values());
   }
 
-  every(func: any): boolean {
-    return this.toArray().every(func);
+  every(func: (v: V) => boolean): boolean {
+    for (let value of this) {
+      if (!func(value)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   filter(func: (v: V) => boolean): Array<V> {
@@ -45,8 +50,21 @@ export class BaseSet<V> extends Set<V> {
     return map;
   }
 
-  reduce(cb: any, initialValue?: any): any {
-    return this.toArray().reduce(cb, initialValue);
+  reduce(cb: (accumulator: any, v: V) => any, initialValue?: any): any {
+    const values = this.values();
+    let reduced = initialValue;
+    // like `Array.prototype.reduce`, with no initial value the first item is the starting one
+    if (arguments.length < 2) {
+      const first = values.next();
+      if (first.done) {
+        throw new TypeError('Reduce of empty set with no initial value');
+      }
+      reduced = first.value;
+    }
+    for (let value of values) {
+      reduced = cb(reduced, value);
+    }
+    return reduced;
   }
 
   some(func: (v: V) => boolean): boolean {

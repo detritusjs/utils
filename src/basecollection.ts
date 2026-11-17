@@ -69,8 +69,17 @@ export class BaseCollectionMixin<K, V> {
   }
 
   reduce(func: (intial: any, v: V) => any, initialValue?: any): any {
+    const values = this.values();
     let reduced = initialValue;
-    for (let [key, value] of this) {
+    // like `Array.prototype.reduce`, with no initial value the first item is the starting one
+    if (arguments.length < 2) {
+      const first = values.next();
+      if (first.done) {
+        throw new TypeError('Reduce of empty collection with no initial value');
+      }
+      reduced = first.value;
+    }
+    for (let value of values) {
       reduced = func(reduced, value);
     }
     return reduced;
@@ -125,14 +134,22 @@ export interface BaseCollectionOptions {
   limit?: number,
 }
 
+// a `NaN` limit would never be satisfied and evict everything on each insert
+function normalizeLimit(value: number | null | undefined): number {
+  return (value === undefined || value === null || Number.isNaN(value)) ? Infinity : value;
+}
+
 export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   readonly cache = new Map<K, V>();
   _lastUsed?: Map<K, number>;
   declare _order?: Map<K, true>;
+  // the interval time asked for, `intervalTime` is this capped to `expire`
+  declare _intervalTime: number;
 
-  expire?: number;
+  // read only, use `setExpire()` and `setIntervalTimeout()` to change them
+  readonly expire?: number;
   interval?: Timers.Interval = undefined;
-  intervalTime = 5000;
+  readonly intervalTime: number = 5000;
   limit: number = Infinity;
 
   constructor({expire, intervalTime, limit}: BaseCollectionOptions = {}) {
@@ -144,8 +161,9 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     if (intervalTime !== undefined) {
       this.intervalTime = intervalTime;
     }
+    this._intervalTime = this.intervalTime;
     if (limit !== undefined) {
-      this.limit = limit;
+      this.limit = normalizeLimit(limit);
     }
 
     if (this.expire) {
@@ -153,6 +171,7 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     }
 
     Object.defineProperties(this, {
+      _intervalTime: {enumerable: false, writable: true},
       _lastUsed: {enumerable: false, writable: true},
       _order: {enumerable: false, writable: true},
       cache: {enumerable: false},
@@ -173,6 +192,17 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     return new Map<K, number>();
   }
 
+  /**
+   * If the item outlived `expire` but the interval hasn't swept it yet
+   */
+  _hasExpired(key: K): boolean {
+    if (this.expire && this._lastUsed) {
+      const lastUsed = this._lastUsed.get(key);
+      return lastUsed !== undefined && this.expire < Date.now() - lastUsed;
+    }
+    return false;
+  }
+
   touch(key: K): void {
     const lastUsed = this.lastUsed;
     lastUsed.delete(key);
@@ -187,7 +217,8 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     const wasExpiring = !!this.expire;
     Object.defineProperty(this, 'expire', {value});
     if (value) {
-      Object.defineProperty(this, 'intervalTime', {value: Math.min(value, this.intervalTime)});
+      // based on the asked for interval, so raising `expire` again doesn't keep a tiny interval from a smaller one
+      Object.defineProperty(this, 'intervalTime', {value: Math.min(value, this._intervalTime)});
       const now = Date.now();
       const lastUsed = this.lastUsed;
       for (let key of this.cache.keys()) {
@@ -199,6 +230,7 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
         this.startInterval();
       }
     } else {
+      Object.defineProperty(this, 'intervalTime', {value: this._intervalTime});
       this.stopInterval();
       if (this._lastUsed) {
         this._lastUsed.clear();
@@ -208,12 +240,13 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   }
 
   setLimit(value: number): this {
-    this.limit = value;
+    this.limit = normalizeLimit(value);
     this.evict(0);
     return this;
   }
 
   setIntervalTimeout(value: number): this {
+    this._intervalTime = value;
     Object.defineProperty(this, 'intervalTime', {value});
     if (value) {
       if (this.size) {
@@ -250,10 +283,10 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   }
 
   stopInterval() {
+    // keep the interval object around so an `unref()` on it still applies the next time it starts
     if (this.interval) {
       this.interval.stop();
     }
-    this.interval = undefined;
   }
 
   get size(): number {
@@ -277,6 +310,10 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     const keys = (this.limit !== Infinity) ? this.getOrder().keys() : this.cache.keys();
     for (let key of keys) {
       collection.set(key, this.cache.get(key)!);
+    }
+    if (collection.expire && this._lastUsed) {
+      // `set` stamped every item as just used, keep their real ages (the map is already oldest first)
+      collection._lastUsed = new Map(this._lastUsed);
     }
     return collection;
   }
@@ -302,6 +339,11 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   get(key: K): V | undefined {
     const value = this.cache.get(key);
     if ((this.limit !== Infinity || this.expire) && (value !== undefined || this.cache.has(key))) {
+      if (this._hasExpired(key)) {
+        // the interval just hasn't swept it yet, don't hand it out (or refresh it) past its expiry
+        this.delete(key);
+        return undefined;
+      }
       if (this.limit !== Infinity) {
         // mark it as the most recently used
         const order = this.getOrder();
@@ -316,23 +358,29 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   }
 
   getOrInsert(key: K, defaultValue: V): V {
-    if (this.has(key)) {
-      return this.get(key)!;
+    const value = this.get(key);
+    if (value !== undefined || this.cache.has(key)) {
+      return value!;
     }
     this.set(key, defaultValue);
     return defaultValue;
   }
 
   getOrInsertComputed(key: K, func: (key: K) => V): V {
-    if (this.has(key)) {
-      return this.get(key)!;
+    const value = this.get(key);
+    if (value !== undefined || this.cache.has(key)) {
+      return value!;
     }
-    const value = func(key);
-    this.set(key, value);
-    return value;
+    const computed = func(key);
+    this.set(key, computed);
+    return computed;
   }
 
   has(key: K): boolean {
+    if (this._hasExpired(key)) {
+      this.delete(key);
+      return false;
+    }
     return this.cache.has(key);
   }
 

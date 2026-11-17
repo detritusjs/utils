@@ -28,7 +28,7 @@ export class EventSpewer extends EventEmitter {
 
   subscribe(name: string | symbol, listener: (...args: any[]) => void): EventSubscription {
     const subscription = new EventSubscription(this, name, listener);
-    this.on(name, listener);
+    this.on(name, subscription.wrapped!);
 
     if (!this._subscriptions) {
       this._subscriptions = new Map();
@@ -61,14 +61,10 @@ export class EventSpewer extends EventEmitter {
         this._deleteSubscriptions(subscription.name, subscriptions);
       }
     }
-    if (subscription.listener) {
-      const { listener, name } = subscription;
-      const count = () => this.listeners(name).filter((x) => x === listener).length;
-      const before = count();
-      (super.removeListener as Function).call(this, name, listener);
-      for (let attached = count(); attached < before - 1; attached++) {
-        (super.on as Function).call(this, name, listener);
-      }
+    if (subscription.wrapped) {
+      // the wrapper is only ever attached by this subscription, so this can't take out another registration of the
+      // same function (like a `once()`, which `removeListener(name, listener)` would remove first)
+      (super.removeListener as Function).call(this, subscription.name, subscription.wrapped);
     }
   }
 
@@ -76,18 +72,17 @@ export class EventSpewer extends EventEmitter {
     (super.removeListener as Function).call(this, name, listener, ...args);
     if (this._subscriptions) {
       const subscriptions = this._subscriptions.get(name);
-      if (subscriptions && subscriptions.some((subscription) => subscription.listener === listener)) {
-        let attached = this.listeners(name).filter((x) => x === listener).length;
+      // `listener` is either the subscribed function or a subscription's wrapper (when node removes it, like in `removeAllListeners()`)
+      if (subscriptions && subscriptions.some((subscription) => subscription.listener === listener || subscription.wrapped === listener)) {
+        // drop the subscriptions whose wrapper isn't attached anymore
+        const attached = new Set(this.rawListeners(name));
         for (let i = subscriptions.length - 1; 0 <= i; i--) {
           const subscription = subscriptions[i];
-          if (subscription.listener === listener) {
-            if (attached) {
-              attached--;
-            } else {
-              subscriptions.splice(i, 1);
-              subscription.listener = null;
-              subscription.spewer = null;
-            }
+          if (!attached.has(subscription.wrapped!)) {
+            subscriptions.splice(i, 1);
+            subscription.listener = null;
+            subscription.spewer = null;
+            subscription.wrapped = null;
           }
         }
         this._deleteSubscriptions(name, subscriptions);
@@ -114,6 +109,7 @@ export class EventSpewer extends EventEmitter {
           for (let subscription of subscriptions) {
             subscription.listener = null;
             subscription.spewer = null;
+            subscription.wrapped = null;
           }
         }
         this._subscriptions = undefined;
@@ -148,11 +144,24 @@ export class EventSubscription {
   listener: ((...args: any[]) => void) | null;
   name: string | symbol;
   spewer: EventSpewer | null;
+  /**
+   * What's actually attached to the spewer, a function only this subscription owns
+   * Removing it can't remove another registration of `listener` (or bring one back)
+   */
+  wrapped: ((...args: any[]) => void) | null;
 
   constructor(spewer: EventSpewer, name: string | symbol, listener: (...args: any[]) => void) {
     this.name = name;
     this.listener = listener;
     this.spewer = spewer;
+
+    const wrapped = function (this: any, ...args: any[]) {
+      return listener.apply(this, args);
+    };
+    // the same trick node uses for `once()`, so `listeners()`, `listenerCount(name, listener)` and
+    // `removeListener(name, listener)` still see the original function
+    (wrapped as any).listener = listener;
+    this.wrapped = wrapped;
   }
 
   remove(): void {
@@ -161,5 +170,6 @@ export class EventSubscription {
     }
     this.listener = null;
     this.spewer = null;
+    this.wrapped = null;
   }
 }
