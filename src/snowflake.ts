@@ -22,11 +22,38 @@ const max = Object.freeze({
   workerId: -1n ^ (-1n << bits.workerId),
 });
 
-// the last generated millisecond (absolute, not relative to an epoch) and the sequence used in it
-const cache = {
-  sequence: 0n,
-  timestamp: -1n,
-};
+interface SequenceState {
+  // the millisecond the current run of sequences started in, `timestamp` borrows past it when one runs out
+  start: bigint,
+  // the last generated millisecond (absolute, not relative to an epoch) and the sequence used in it
+  sequence: bigint,
+  timestamp: bigint,
+}
+
+// ids made from `Date.now()`, this one only ever moves forward
+const clock: SequenceState = {start: -1n, sequence: 0n, timestamp: -1n};
+// ids made from a passed in `timestamp`, kept apart so they can't rewind the clock's
+const manual: SequenceState = {start: -1n, sequence: 0n, timestamp: -1n};
+
+function nextSequence(state: SequenceState, now: bigint, isClock: boolean): [bigint, bigint] {
+  if (now < state.timestamp && (isClock || state.start <= now)) {
+    // the clock went backwards, or `now` is inside a run that borrowed ahead, keep counting from the last one
+    now = state.timestamp;
+  }
+  let sequence = 0n;
+  if (now === state.timestamp) {
+    sequence = (state.sequence + 1n) & max.sequence;
+    if (!sequence) {
+      // every sequence in this millisecond is used, borrow the next one
+      now++;
+    }
+  } else {
+    state.start = now;
+  }
+  state.sequence = sequence;
+  state.timestamp = now;
+  return [now, sequence];
+}
 
 const DEFAULT_EPOCH = BigInt(DISCORD_SNOWFLAKE_EPOCH);
 const MAX_ID = 1n << 64n;
@@ -37,7 +64,6 @@ function getEpoch(epoch?: number): bigint {
 
 function parseId(id: string): bigint {
   const snowflake = BigInt(id);
-  // snowflakes are unsigned 64 bit, anything outside of that would decode into garbage
   if (snowflake < 0n || MAX_ID <= snowflake) {
     throw new RangeError(`Snowflake ${id} is not an unsigned 64 bit integer`);
   }
@@ -61,6 +87,11 @@ export interface SnowflakeGenerateOptions {
   workerId?: number,
 }
 
+/**
+ * Ids made without `timestamp` and `sequence` are unique within this process (for the same `workerId` and `processId`), whatever other calls passed
+ * An explicit `timestamp` before the clock's last used millisecond (or past the real clock) can collide with ids made in it
+ * Out of range `workerId`s and `processId`s are masked to 5 bits
+ */
 export function generate(
   options: SnowflakeGenerateOptions = {},
 ): Snowflake {
@@ -74,22 +105,15 @@ export function generate(
 
   let sequence: bigint;
   if (options.sequence === undefined || options.sequence === null) {
-    // the sequence only counts within one millisecond, so ids stay unique until 4096 are made in the same one
-    if ((options.timestamp === undefined || options.timestamp === null) && now < cache.timestamp) {
-      // the clock went backwards (or the last millisecond ran out of sequences), keep counting from the last one
-      now = cache.timestamp;
-    }
-    if (now === cache.timestamp) {
-      sequence = (cache.sequence + 1n) & max.sequence;
-      if (!sequence) {
-        // every sequence in this millisecond is used, borrow the next one
-        now++;
-      }
+    if (options.timestamp === undefined || options.timestamp === null) {
+      [now, sequence] = nextSequence(clock, now, true);
+    } else if (clock.start <= now && (now <= clock.timestamp || now <= BigInt(Date.now()))) {
+      // a millisecond the clock already made ids in (or is about to), keep counting there so they can't collide
+      // past the real clock stays apart, or every later id would be dated in the future
+      [now, sequence] = nextSequence(clock, now, false);
     } else {
-      sequence = 0n;
+      [now, sequence] = nextSequence(manual, now, false);
     }
-    cache.sequence = sequence;
-    cache.timestamp = now;
   } else {
     sequence = BigInt(options.sequence) & max.sequence;
   }
@@ -124,7 +148,7 @@ export function deconstruct(
   options: SnowflakeDeconstructOptions = {},
 ): Snowflake {
   if (!id) {
-    // same as `timestamp()`, an empty id has no timestamp instead of the epoch
+    // like `timestamp()`, an empty id is 0 instead of the epoch
     return {id, processId: 0, sequence: 0, timestamp: 0, workerId: 0};
   }
   const epoch = getEpoch(options.epoch);

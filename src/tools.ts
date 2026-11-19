@@ -16,7 +16,7 @@ export function guildIdToShardId(guildId: string, shardCount: number = 0): numbe
   } catch(e) {
     return NaN;
   }
-  // a negative id isn't a snowflake, and bigint `%` would keep the sign and give a negative shard
+  // bigint `%` keeps the sign, a negative id would give a negative shard
   if (id < 0n) {
     return NaN;
   }
@@ -32,19 +32,18 @@ export type URIEncodeWrapped = {[key: string]: any};
 export type URIEncodedArgument<T> = string | Extract<T, '' | 0 | 0n | false | null | undefined>;
 
 /**
- * Each function has to accept what it'll really be called with, so a parameter typed `number` or `bigint` (that would
- * get a string at runtime) is a type error instead of something like `id + 1n` silently concatenating
+ * Parameters must accept strings, so a `number` or `bigint` one is a type error instead of `id + 1n` silently concatenating
  */
 export type URIEncodeWrapSafe<T> = {
   [K in keyof T]: T[K] extends (...args: infer A) => any ? (...args: {[I in keyof A]: URIEncodedArgument<A[I]>}) => any : T[K];
 };
 
-// `encodeURIComponent` leaves `.` alone, so a `.` or `..` argument would become a path segment that climbs out of the url
-// `%2E` counts as a dot to the url parser too, so the percent itself is encoded (same as `detritus-rest` routes)
+// `encodeURIComponent` leaves `.` alone, so a `.` or `..` argument would climb out of the url
+// `%2E` is a dot to the url parser too, so the percent itself is encoded
 const DotSegmentRegex = /^\.{1,2}$/;
 
 const safeCharacter = '@';
-// generic so the wrapped route builders keep their types, the functions keep their signatures (only their arguments get encoded)
+// generic so the wrapped route builders keep their signatures
 export function URIEncodeWrap<T extends URIEncodeWrapSafe<T>>(unsafe: T): Readonly<T> {
   const safe: URIEncodeWrapped = {};
   for (let key in unsafe) {
@@ -57,7 +56,7 @@ export function URIEncodeWrap<T extends URIEncodeWrapSafe<T>>(unsafe: T): Readon
       for (let i = 0; i < args.length; i++) {
         const arg = args[i];
         if (arg) {
-          // a lone surrogate would make `encodeURIComponent` throw, they get replaced with U+FFFD instead
+          // a lone surrogate would make `encodeURIComponent` throw
           const value = String(arg).toWellFormed();
           let encoded = (value.includes(safeCharacter)) ? value.split(safeCharacter).map(encodeURIComponent).join(safeCharacter) : encodeURIComponent(value);
           if (DotSegmentRegex.test(encoded)) {

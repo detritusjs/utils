@@ -62,8 +62,7 @@ export class EventSpewer extends EventEmitter {
       }
     }
     if (subscription.wrapped) {
-      // the wrapper is only ever attached by this subscription, so this can't take out another registration of the
-      // same function (like a `once()`, which `removeListener(name, listener)` would remove first)
+      // only this subscription attached the wrapper, so this can't remove another registration of the same function
       (super.removeListener as Function).call(this, subscription.name, subscription.wrapped);
     }
   }
@@ -72,9 +71,8 @@ export class EventSpewer extends EventEmitter {
     (super.removeListener as Function).call(this, name, listener, ...args);
     if (this._subscriptions) {
       const subscriptions = this._subscriptions.get(name);
-      // `listener` is either the subscribed function or a subscription's wrapper (when node removes it, like in `removeAllListeners()`)
+      // `listener` is a wrapper when node removes it, like in `removeAllListeners()`
       if (subscriptions && subscriptions.some((subscription) => subscription.listener === listener || subscription.wrapped === listener)) {
-        // drop the subscriptions whose wrapper isn't attached anymore
         const attached = new Set(this.rawListeners(name));
         for (let i = subscriptions.length - 1; 0 <= i; i--) {
           const subscription = subscriptions[i];
@@ -146,7 +144,6 @@ export class EventSubscription {
   spewer: EventSpewer | null;
   /**
    * What's actually attached to the spewer, a function only this subscription owns
-   * Removing it can't remove another registration of `listener` (or bring one back)
    */
   wrapped: ((...args: any[]) => void) | null;
 
@@ -158,10 +155,16 @@ export class EventSubscription {
     const wrapped = function (this: any, ...args: any[]) {
       return listener.apply(this, args);
     };
-    // the same trick node uses for `once()`, so `listeners()`, `listenerCount(name, listener)` and
-    // `removeListener(name, listener)` still see the original function
+    // like node's `once()`, so `listeners()` and `removeListener(name, listener)` still see the original function
     (wrapped as any).listener = listener;
     this.wrapped = wrapped;
+  }
+
+  /**
+   * If it's still attached, `false` once removed (by `remove()`, `removeListener()` or `removeAllListeners()`)
+   */
+  get active(): boolean {
+    return this.spewer !== null;
   }
 
   remove(): void {

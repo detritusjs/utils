@@ -53,7 +53,7 @@ export class BaseSet<V> extends Set<V> {
   reduce(cb: (accumulator: any, v: V) => any, initialValue?: any): any {
     const values = this.values();
     let reduced = initialValue;
-    // like `Array.prototype.reduce`, with no initial value the first item is the starting one
+    // like `Array.prototype.reduce`, no initial value starts from the first item
     if (arguments.length < 2) {
       const first = values.next();
       if (first.done) {

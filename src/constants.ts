@@ -1,5 +1,4 @@
-// package.json is in every published package and sits one folder up from both src/ and lib/, `require` keeps tsc
-// from pulling it into the build (it's outside rootDir)
+// `require` so tsc doesn't pull it (outside rootDir) into the build
 const { version } = require('../package.json') as {version: string};
 
 export const Package = Object.freeze({

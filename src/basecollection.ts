@@ -71,7 +71,7 @@ export class BaseCollectionMixin<K, V> {
   reduce(func: (intial: any, v: V) => any, initialValue?: any): any {
     const values = this.values();
     let reduced = initialValue;
-    // like `Array.prototype.reduce`, with no initial value the first item is the starting one
+    // like `Array.prototype.reduce`, no initial value starts from the first item
     if (arguments.length < 2) {
       const first = values.next();
       if (first.done) {
@@ -132,9 +132,13 @@ export interface BaseCollectionOptions {
   expire?: number,
   intervalTime?: number,
   limit?: number,
+  /**
+   * Don't let the expiry interval keep the process alive
+   */
+  unref?: boolean,
 }
 
-// a `NaN` limit would never be satisfied and evict everything on each insert
+// a `NaN` limit would evict everything on each insert
 function normalizeLimit(value: number | null | undefined): number {
   return (value === undefined || value === null || Number.isNaN(value)) ? Infinity : value;
 }
@@ -152,8 +156,12 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   readonly intervalTime: number = 5000;
   limit: number = Infinity;
 
-  constructor({expire, intervalTime, limit}: BaseCollectionOptions = {}) {
+  constructor({expire, intervalTime, limit, unref}: BaseCollectionOptions = {}) {
     super();
+    if (unref) {
+      this.interval = new Timers.Interval();
+      this.interval.unref();
+    }
 
     if (expire !== undefined) {
       this.expire = expire;
@@ -192,9 +200,6 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     return new Map<K, number>();
   }
 
-  /**
-   * If the item outlived `expire` but the interval hasn't swept it yet
-   */
   _hasExpired(key: K): boolean {
     if (this.expire && this._lastUsed) {
       const lastUsed = this._lastUsed.get(key);
@@ -204,20 +209,31 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   }
 
   touch(key: K): void {
+    if (!this.cache.has(key)) {
+      // a timestamp for a missing key would later be swept for nothing
+      return;
+    }
     const lastUsed = this.lastUsed;
     lastUsed.delete(key);
     lastUsed.set(key, Date.now());
   }
 
   get shouldStartInterval(): boolean {
-    return !!this.intervalTime && (!this.interval || !this.interval.hasStarted);
+    return !!this.expire && !!this.intervalTime && (!this.interval || !this.interval.hasStarted);
+  }
+
+  /**
+   * If the expiry interval is running, only while items expire and the collection isn't empty
+   */
+  get isSweeping(): boolean {
+    return !!this.interval && this.interval.hasStarted;
   }
 
   setExpire(value: number): this {
     const wasExpiring = !!this.expire;
     Object.defineProperty(this, 'expire', {value});
     if (value) {
-      // based on the asked for interval, so raising `expire` again doesn't keep a tiny interval from a smaller one
+      // from the asked for interval, so raising `expire` again doesn't keep a smaller cap
       Object.defineProperty(this, 'intervalTime', {value: Math.min(value, this._intervalTime)});
       const now = Date.now();
       const lastUsed = this.lastUsed;
@@ -247,7 +263,8 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
 
   setIntervalTimeout(value: number): this {
     this._intervalTime = value;
-    Object.defineProperty(this, 'intervalTime', {value});
+    // capped to `expire`, so expired items linger at most another `expire`
+    Object.defineProperty(this, 'intervalTime', {value: (this.expire) ? Math.min(this.expire, value) : value});
     if (value) {
       if (this.size) {
         this.startInterval();
@@ -264,15 +281,8 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
         this.interval = new Timers.Interval();
       }
       this.interval.start(this.intervalTime, () => {
-        const expire = this.expire;
-        if (expire) {
-          const now = Date.now();
-          for (let [key, lastUsed] of this.lastUsed) {
-            if (now - lastUsed <= expire) {
-              break;
-            }
-            this.delete(key);
-          }
+        if (this.expire) {
+          this.sweep();
         } else {
           this.stopInterval();
         }
@@ -282,8 +292,28 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     }
   }
 
+  /**
+   * Deletes every expired item now, returns how many were deleted
+   */
+  sweep(): number {
+    const expire = this.expire;
+    let deleted = 0;
+    if (expire && this._lastUsed) {
+      const now = Date.now();
+      // oldest first, so everything after the first fresh item is fresh too
+      for (let [key, lastUsed] of this._lastUsed) {
+        if (now - lastUsed <= expire) {
+          break;
+        }
+        this.delete(key);
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
   stopInterval() {
-    // keep the interval object around so an `unref()` on it still applies the next time it starts
+    // keep the object around so an `unref()` still applies on the next start
     if (this.interval) {
       this.interval.stop();
     }
@@ -305,7 +335,13 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
   }
 
   clone(): BaseCollection<K, V> {
-    const collection = new BaseCollection<K, V>(this);
+    // the asked for interval, not the one capped to `expire`
+    const collection = new BaseCollection<K, V>({
+      expire: this.expire,
+      intervalTime: this._intervalTime,
+      limit: this.limit,
+      unref: !!this.interval && !this.interval.hasRef(),
+    });
     // insert least recently used first so the clone keeps the same eviction order
     const keys = (this.limit !== Infinity) ? this.getOrder().keys() : this.cache.keys();
     for (let key of keys) {
@@ -340,12 +376,11 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
     const value = this.cache.get(key);
     if ((this.limit !== Infinity || this.expire) && (value !== undefined || this.cache.has(key))) {
       if (this._hasExpired(key)) {
-        // the interval just hasn't swept it yet, don't hand it out (or refresh it) past its expiry
+        // expired but not swept yet
         this.delete(key);
         return undefined;
       }
       if (this.limit !== Infinity) {
-        // mark it as the most recently used
         const order = this.getOrder();
         order.delete(key);
         order.set(key, true);
@@ -398,7 +433,6 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
       if (this.cache.has(key)) {
         order.delete(key);
       } else {
-        // make room for the new key, evicting the least recently used ones
         this.evict(1);
       }
       order.set(key, true);
@@ -435,7 +469,7 @@ export class BaseCollection<K, V> extends BaseCollectionMixin<K, V> {
 
   /**
    * The recency order (least recently used first), synced with the cache
-   * keys added before `limit` was set (or while it was `Infinity`) aren't tracked yet, so they count as the least recently used
+   * untracked keys (added while `limit` was `Infinity`) count as the least recently used
    */
   getOrder(): Map<K, true> {
     let order = this._order;
